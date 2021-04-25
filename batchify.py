@@ -13,14 +13,12 @@ def get_batch(x, vocab, device):
 
 def get_batches(data, vocab, batch_size, device):
     order = range(len(data))
-    z = sorted(zip(order, data), key=lambda i: len(i[1]))
-    order, data = zip(*z)
 
     batches = []
     i = 0
     while i < len(data):
         j = i
-        while j < min(len(data), i+batch_size) and len(data[j]) == len(data[i]):
+        while j < min(len(data), i+batch_size):
             j += 1
         batches.append(get_batch(data[i: j], vocab, device))
         i = j

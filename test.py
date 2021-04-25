@@ -55,8 +55,8 @@ parser.add_argument('--seed', type=int, default=1111, metavar='N',
 parser.add_argument('--no-cuda', action='store_true',
                     help='disable CUDA')
 
-def get_model(path):
-    ckpt = torch.load(path)
+def get_model(path, device):
+    ckpt = torch.load(path, map_location=device)
     train_args = ckpt['args']
     model = {'dae': DAE, 'vae': VAE, 'aae': AAE}[train_args.model_type](
         vocab, train_args).to(device)
@@ -107,7 +107,7 @@ if __name__ == '__main__':
     set_seed(args.seed)
     cuda = not args.no_cuda and torch.cuda.is_available()
     device = torch.device("cuda" if cuda else "cpu")
-    model = get_model(os.path.join(args.checkpoint, 'model.pt'))
+    model = get_model(os.path.join(args.checkpoint, 'model.pt'), device)
 
     if args.evaluate:
         sents = load_sent(args.data)

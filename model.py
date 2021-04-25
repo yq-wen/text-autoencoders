@@ -142,6 +142,56 @@ class VAE(DAE):
         return {'rec': self.loss_rec(logits, targets).mean(),
                 'kl': loss_kl(mu, logvar)}
 
+class DVAE(VAE):
+    """Disentangled Variational Auto-Encoder"""
+
+    def __init__(self, vocab, args):
+        super().__init__(vocab, args)
+
+    def autoenc(self, x1, x2, y1, y2, is_train=False):
+        mu_x1, logvar_x1, z_x1, logits_x1_orig = self(x1, is_train)
+        mu_x2, logvar_x2, z_x2, logits_x2_orig = self(x2, is_train)
+
+        split = self.args.dim_z // 2
+
+        z_sem_x1 = z_x1[:, :split]
+        z_syn_x1 = z_x1[:, split:]
+
+        z_sem_x2 = z_x2[:, :split]
+        z_syn_x2 = z_x2[:, split:]
+
+        # print('z_sem_x1.shape', z_sem_x1.shape)
+        # print('z_sem_x2.shape', z_sem_x2.shape)
+        # print('z_x1.shape', z_x1.shape)
+        # print('z_x2.shape', z_x2.shape)
+
+        z_x1_swapped = torch.cat((z_sem_x2, z_syn_x1), 1)
+        z_x2_swapped = torch.cat((z_sem_x1, z_syn_x2), 1)
+
+        # print('z_x1_swapped.shape', z_x1_swapped.shape)
+        # print('z_x2_swapped.shape', z_x2_swapped.shape)
+        # print()
+
+        # input_x1 = torch.zeros(1, len(z_x1_swapped), dtype=torch.long, device=z_x1_swapped.device).fill_(self.vocab.go)
+        # input_x2 = torch.zeros(1, len(z_x2_swapped), dtype=torch.long, device=z_x2_swapped.device).fill_(self.vocab.go)
+
+        logits_x1, _ = self.decode(z_x1_swapped, x1)
+        logits_x2, _ = self.decode(z_x2_swapped, x2)
+
+        # print('logits_x1', logits_x1.shape)
+        # print('y1', y1.shape)
+        # print('logits_x1_orig', logits_x1_orig.shape)
+
+        p_rec = self.loss_rec(logits_x1_orig, y1).mean()
+        p_rec += self.loss_rec(logits_x2_orig, y2).mean()
+
+        kl = loss_kl(mu_x1, logvar_x1) + loss_kl(mu_x2, logvar_x2)
+        return {'p_rec' : p_rec, 'kl' : kl}
+        # return {'rec': self.loss_rec(logits, targets).mean(),
+        #         'kl': loss_kl(mu, logvar)}
+
+    def loss(self, losses):
+        return losses['p_rec'] + self.args.lambda_kl * losses['kl']
 
 class AAE(DAE):
     """Adversarial Auto-Encoder"""
