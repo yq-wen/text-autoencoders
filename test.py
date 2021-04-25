@@ -8,7 +8,8 @@ from vocab import Vocab
 from model import *
 from utils import *
 from batchify import get_batches
-from train import evaluate
+# FIXME: this import is broken because train parses arguments in global scope
+# from train import evaluate
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--checkpoint', metavar='DIR', required=True,
@@ -35,6 +36,8 @@ parser.add_argument('--ppl', action='store_true',
                     help='compute ppl by importance sampling')
 parser.add_argument('--reconstruct', action='store_true',
                     help='reconstruct data file')
+parser.add_argument('--preconstruct', action='store_true',
+                    help='paraphrase reconstruction')
 parser.add_argument('--sample', action='store_true',
                     help='sample sentences from prior')
 parser.add_argument('--arithmetic', action='store_true',
@@ -58,7 +61,7 @@ parser.add_argument('--no-cuda', action='store_true',
 def get_model(path, device):
     ckpt = torch.load(path, map_location=device)
     train_args = ckpt['args']
-    model = {'dae': DAE, 'vae': VAE, 'aae': AAE}[train_args.model_type](
+    model = {'dae': DAE, 'vae': VAE, 'aae': AAE, 'dvae': DVAE}[train_args.model_type](
         vocab, train_args).to(device)
     model.load_state_dict(ckpt['model'])
     model.flatten()
@@ -71,6 +74,30 @@ def encode(sents):
     z = []
     for inputs, _ in batches:
         mu, logvar = model.encode(inputs)
+        if args.enc == 'mu':
+            zi = mu
+        else:
+            zi = reparameterize(mu, logvar)
+        z.append(zi.detach().cpu().numpy())
+    z = np.concatenate(z, axis=0)
+    z_ = np.zeros_like(z)
+    z_[np.array(order)] = z
+    return z_
+
+def para_encode(sents):
+    assert args.enc == 'mu' or args.enc == 'z'
+    batches, order = get_batches(sents, vocab, args.batch_size, device)
+    z = []
+    for inputs, _ in batches:
+        mu, logvar = model.encode(inputs)
+
+        # print('mu.shape', mu.shape)
+        # print('logvar.shape', logvar.shape)
+
+        split = model.args.dim_z // 2
+        # setting the variance of z_sem to 0, i.e. argmax
+        logvar[:, :split] = -float('inf')
+
         if args.enc == 'mu':
             zi = mu
         else:
@@ -102,6 +129,7 @@ def calc_ppl(sents, m):
     return total_nll / len(sents), np.exp(total_nll / n_words)
 
 if __name__ == '__main__':
+
     args = parser.parse_args()
     vocab = Vocab(os.path.join(args.checkpoint, 'vocab.txt'))
     set_seed(args.seed)
@@ -129,6 +157,13 @@ if __name__ == '__main__':
     if args.reconstruct:
         sents = load_sent(args.data)
         z = encode(sents)
+        sents_rec = decode(z)
+        write_z(z, os.path.join(args.checkpoint, args.output+'.z'))
+        write_sent(sents_rec, os.path.join(args.checkpoint, args.output+'.rec'))
+    
+    if args.preconstruct:
+        sents = load_sent(args.data)
+        z = para_encode(sents)
         sents_rec = decode(z)
         write_z(z, os.path.join(args.checkpoint, args.output+'.z'))
         write_sent(sents_rec, os.path.join(args.checkpoint, args.output+'.rec'))
